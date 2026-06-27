@@ -2,7 +2,7 @@
 
 These are the scripts that actually run my [homelab](https://github.com/tylerbcrawford/infrastructure-showcase) on cron and systemd. The audiobookshelf author matcher was born out of frustration with 200+ authors showing blank photos in the UI — it tries 6 different sources before giving up. The PDF converter exists because Readarr occasionally grabs PDF-only books that Calibre can't auto-import without conversion.
 
-They're not pretty, but they work. Each one solves a specific annoyance I ran into while managing a 51-service media server.
+They're not pretty, but they work. Each one solves a specific annoyance I ran into while managing a 49-service media server.
 
 ## Table of Contents
 
