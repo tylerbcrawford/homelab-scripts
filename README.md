@@ -1,19 +1,31 @@
 # Homelab Scripts
 
-These are the scripts that actually run my [homelab](https://github.com/tylerbcrawford/infrastructure-showcase) on cron and systemd. The audiobookshelf author matcher was born out of frustration with 200+ authors showing blank photos in the UI — it tries 6 different sources before giving up. The PDF converter exists because Readarr occasionally grabs PDF-only books that Calibre can't auto-import without conversion.
+The scripts that run my [49-service self-hosted media server](https://github.com/tylerbcrawford/infrastructure-showcase) on cron and systemd. Each one solves a specific operational problem, and each carries a deliberate engineering decision:
 
-They're not pretty, but they work. Each one solves a specific annoyance I ran into while managing a 49-service media server.
+- **Tiered startup** brings services up in five waves so the machine doesn't spike CPU the moment Docker starts on boot.
+- **Race-safe file watching** pairs `inotifywait` with `flock` so the real-time watcher and its periodic safety sweep never process the same file twice.
+- **A 6-source fallback chain** enriches author metadata through Audnexus, Open Library, Wikipedia, Goodreads, Penguin Random House, and Google Books in turn before giving up.
+
+The media-automation origin of each script is documented in its section below.
 
 ## Table of Contents
 
+- [Skills Demonstrated](#skills-demonstrated)
 - [Quick Start](#quick-start)
 - [Scripts](#scripts)
-  - [Audiobookshelf](#audiobookshelf)
-  - [Calibre](#calibre)
   - [Infrastructure](#infrastructure)
   - [Utils](#utils)
+  - [Audiobookshelf](#audiobookshelf)
+  - [Calibre](#calibre)
 - [Configuration](#configuration)
 - [License](#license)
+
+## Skills Demonstrated
+
+- **Service orchestration** — tiered, health-gated Docker Compose startup wired into systemd, with long-running `inotifywait` watchers supervised as services.
+- **Race-safe concurrency** — `flock` guards shared work between a real-time watcher and its periodic sweep so nothing is processed twice.
+- **Resilient API integration** — a 6-source fallback chain with rate limiting, JSON-LD scraping, and graceful degradation when a source returns nothing.
+- **Idempotent processing** — processed-file ledgers and quarantine directories make every script safe to re-run and safe to crash mid-run.
 
 ## Quick Start
 
@@ -35,6 +47,90 @@ source .env
 ```
 
 ## Scripts
+
+### Infrastructure
+
+#### `start-media-server.sh`
+
+Tiered Docker Compose startup script that brings up services in 5 waves to prevent CPU spikes on boot. Each wave waits for critical services to become healthy before starting the next.
+
+The wave architecture:
+1. **Infrastructure** -- auth proxies, databases, container management
+2. **Dashboard + Downloads** -- dashboards, download clients, monitoring
+3. **Media Managers** -- Sonarr, Radarr, Readarr, Calibre, etc.
+4. **Media Server + Heavy** -- Plex, transcoding services
+5. **Notifications** -- services that monitor the arr stack
+
+**Prerequisites:** Docker, Docker Compose
+
+**Environment variables:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `COMPOSE_DIR` | `/path/to/docker-compose-directory` | Directory containing `docker-compose.yml` |
+| `LOG_DIR` | `${COMPOSE_DIR}/logs` | Startup log directory |
+
+**Usage:**
+
+```bash
+# Edit the service arrays in the script to match your stack, then:
+./infrastructure/start-media-server.sh
+
+# Or via systemd
+# [Unit]
+# Description=Docker Compose Tiered Startup
+# After=docker.service
+# Requires=docker.service
+#
+# [Service]
+# Type=oneshot
+# RemainAfterExit=yes
+# ExecStart=/path/to/infrastructure/start-media-server.sh
+# Environment=COMPOSE_DIR=/path/to/your/docker-compose-directory
+#
+# [Install]
+# WantedBy=multi-user.target
+```
+
+#### `tautulli-newsletter-discord.py`
+
+Forwards Tautulli newsletter notifications to a Discord channel via webhook. Rewrites internal Docker IPs to your public domain so newsletter links work outside your network.
+
+**Prerequisites:** Python 3, `requests` (`pip install requests`)
+
+**Environment variables:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DISCORD_WEBHOOK` | *(required)* | Discord webhook URL |
+| `INTERNAL_URL` | `http://localhost:8181` | Tautulli internal URL |
+| `PUBLIC_URL` | `https://stats.yourdomain.com` | Tautulli public URL |
+
+**Tautulli setup:**
+1. Go to Settings > Notification Agents > Add Script
+2. Set the script path to `tautulli-newsletter-discord.py`
+3. Under Triggers, enable "Newsletter"
+4. Set the environment variables in the script arguments or via `.env`
+
+---
+
+### Utils
+
+#### `git-status-report.sh`
+
+Generates a quick status report for all your git repositories -- shows branch, last commit time, dirty/clean status, and ahead/behind counts.
+
+**Usage:**
+
+```bash
+# Edit the REPOS array in the script with your repo paths, then:
+./utils/git-status-report.sh
+
+# Markdown table output (great for pasting into notes)
+./utils/git-status-report.sh --markdown
+```
+
+---
 
 ### Audiobookshelf
 
@@ -147,90 +243,6 @@ Converted EPUBs are routed to an incoming directory; failed PDFs are moved to a 
 #### `pdf-convert-lib.sh`
 
 Shared library providing the `convert_single_pdf()` function used by `pdf-to-epub-watcher.sh`. Source this file to use the 3-stage conversion in your own scripts.
-
----
-
-### Infrastructure
-
-#### `start-media-server.sh`
-
-Tiered Docker Compose startup script that brings up services in 5 waves to prevent CPU spikes on boot. Each wave waits for critical services to become healthy before starting the next.
-
-The wave architecture:
-1. **Infrastructure** -- auth proxies, databases, container management
-2. **Dashboard + Downloads** -- dashboards, download clients, monitoring
-3. **Media Managers** -- Sonarr, Radarr, Readarr, Calibre, etc.
-4. **Media Server + Heavy** -- Plex, transcoding services
-5. **Notifications** -- services that monitor the arr stack
-
-**Prerequisites:** Docker, Docker Compose
-
-**Environment variables:**
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `COMPOSE_DIR` | `/path/to/docker-compose-directory` | Directory containing `docker-compose.yml` |
-| `LOG_DIR` | `${COMPOSE_DIR}/logs` | Startup log directory |
-
-**Usage:**
-
-```bash
-# Edit the service arrays in the script to match your stack, then:
-./infrastructure/start-media-server.sh
-
-# Or via systemd
-# [Unit]
-# Description=Docker Compose Tiered Startup
-# After=docker.service
-# Requires=docker.service
-#
-# [Service]
-# Type=oneshot
-# RemainAfterExit=yes
-# ExecStart=/path/to/infrastructure/start-media-server.sh
-# Environment=COMPOSE_DIR=/path/to/your/docker-compose-directory
-#
-# [Install]
-# WantedBy=multi-user.target
-```
-
-#### `tautulli-newsletter-discord.py`
-
-Forwards Tautulli newsletter notifications to a Discord channel via webhook. Rewrites internal Docker IPs to your public domain so newsletter links work outside your network.
-
-**Prerequisites:** Python 3, `requests` (`pip install requests`)
-
-**Environment variables:**
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DISCORD_WEBHOOK` | *(required)* | Discord webhook URL |
-| `INTERNAL_URL` | `http://localhost:8181` | Tautulli internal URL |
-| `PUBLIC_URL` | `https://stats.yourdomain.com` | Tautulli public URL |
-
-**Tautulli setup:**
-1. Go to Settings > Notification Agents > Add Script
-2. Set the script path to `tautulli-newsletter-discord.py`
-3. Under Triggers, enable "Newsletter"
-4. Set the environment variables in the script arguments or via `.env`
-
----
-
-### Utils
-
-#### `git-status-report.sh`
-
-Generates a quick status report for all your git repositories -- shows branch, last commit time, dirty/clean status, and ahead/behind counts.
-
-**Usage:**
-
-```bash
-# Edit the REPOS array in the script with your repo paths, then:
-./utils/git-status-report.sh
-
-# Markdown table output (great for pasting into notes)
-./utils/git-status-report.sh --markdown
-```
 
 ---
 
