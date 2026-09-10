@@ -1,6 +1,8 @@
 # Homelab Scripts
 
-The scripts that run my [49-service self-hosted media server](https://github.com/tylerbcrawford/infrastructure-showcase) on cron and systemd. Each one solves a specific operational problem, and each carries a deliberate engineering decision:
+> **Built with Claude Code.** I set the requirements and the architecture, made the design decisions, and run them in production on my media server. The agent wrote most of the code under my direction.
+
+The scripts that run my [57-service self-hosted media server](https://github.com/tylerbcrawford/infrastructure-showcase) on cron and systemd. Each one solves a specific operational problem, and each carries a deliberate engineering decision:
 
 - **Tiered startup** brings services up in five waves so the machine doesn't spike CPU the moment Docker starts on boot.
 - **Race-safe file watching** pairs `inotifywait` with `flock` so the real-time watcher and its periodic safety sweep never process the same file twice.
