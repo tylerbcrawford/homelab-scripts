@@ -1,19 +1,21 @@
 #!/bin/bash
-# pdf-convert-lib.sh — Shared 3-stage PDF-to-EPUB conversion function
+# pdf-convert-lib.sh — Shared 4-stage PDF-to-EPUB conversion function
 #
 # Source this file to use convert_single_pdf() in other scripts.
 # Requires: pdftotext (poppler-utils), docker (calibre container running)
 #
-# The 3-stage fallback handles pdftohtml hangs (common with Internet Archive scans):
+# The 4-stage fallback handles pdftohtml hangs (common with Internet Archive scans):
 #   Stage 1: Direct PDF->EPUB via Calibre (short timeout to detect pdftohtml hang)
 #   Stage 2: pdftotext on host -> text -> EPUB with heuristics (longer timeout)
-#   Stage 3: Same without heuristics (fastest, last resort)
+#   Stage 3: Same without heuristics (fastest)
+#   Stage 4: Heuristics with splitting disabled (--flow-size 0) — last resort for
+#            scanned text with no usable split points (Calibre SplitError)
 
 DETECT_TIMEOUT="${DETECT_TIMEOUT:-30}"     # Short timeout to detect pdftohtml hangs
 CONVERT_TIMEOUT="${CONVERT_TIMEOUT:-300}"  # Longer timeout for actual conversion work
 CALIBRE_CONTAINER="${CALIBRE_CONTAINER:-calibre}"  # Docker container name for Calibre
 
-# Convert a single PDF to EPUB using the 3-stage fallback strategy.
+# Convert a single PDF to EPUB using the 4-stage fallback strategy.
 #
 # Arguments:
 #   $1 — input PDF path (absolute)
@@ -23,7 +25,7 @@ CALIBRE_CONTAINER="${CALIBRE_CONTAINER:-calibre}"  # Docker container name for C
 #   0 on success, 1 on failure
 #
 # Sets global variable:
-#   CONVERT_METHOD — "direct" / "fallback" / "fallback-no-heuristics"
+#   CONVERT_METHOD — "direct" / "fallback" / "fallback-no-heuristics" / "fallback-nosplit"
 convert_single_pdf() {
     local pdf="$1"
     local epub="$2"
@@ -83,11 +85,26 @@ convert_single_pdf() {
             fi
         fi
 
+        # Stage 4: Splitting disabled. Scanned-book text with few block breaks makes
+        # Calibre abort with "SplitError: Could not find reasonable point at which
+        # to split" at the default ~260 KB flow size; one large flow is fine on
+        # e-readers and keeps a good text layer from being reported as a failure.
+        echo "  Stage 4: Text->EPUB with splitting disabled (${CONVERT_TIMEOUT}s timeout)..."
+        if docker exec "$CALIBRE_CONTAINER" timeout "$CONVERT_TIMEOUT" ebook-convert "$txt" "$epub" \
+            --enable-heuristics --flow-size 0 2>&1 | tail -3; then
+            if [[ -f "$epub" ]]; then
+                CONVERT_METHOD="fallback-nosplit"
+                echo "  OK (fallback, no split): $(du -h "$epub" | cut -f1)"
+                rm -f "$txt"
+                return 0
+            fi
+        fi
+
         rm -f "$txt"
     else
         echo "  pdftotext failed on: $pdf"
     fi
 
-    echo "  FAILED: All 3 stages exhausted for $base"
+    echo "  FAILED: All 4 stages exhausted for $base"
     return 1
 }

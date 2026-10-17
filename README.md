@@ -220,11 +220,12 @@ Watches a directory for new ebook files and automatically copies them to Calibre
 
 #### `pdf-to-epub-watcher.sh`
 
-Watches a quarantine directory for PDF files and converts them to EPUB using a 3-stage fallback strategy (defined in `pdf-convert-lib.sh`):
+Watches a quarantine directory for PDF files and converts them to EPUB using a 4-stage fallback strategy (defined in `pdf-convert-lib.sh`):
 
 1. **Direct**: PDF to EPUB via Calibre's `ebook-convert` (30s timeout to detect pdftohtml hangs)
 2. **Fallback**: Extract text with `pdftotext`, then convert text to EPUB with heuristics
-3. **Last resort**: Text to EPUB without heuristics (fastest)
+3. **No heuristics**: Text to EPUB without heuristics (fastest)
+4. **Last resort**: Text to EPUB with splitting disabled (`--flow-size 0`) — rescues scanned books where Calibre aborts with `SplitError`
 
 Converted EPUBs are routed to an incoming directory; failed PDFs are moved to a `failed/` subdirectory. Includes automatic cleanup of processed PDFs older than 30 days.
 
@@ -239,12 +240,12 @@ Converted EPUBs are routed to an incoming directory; failed PDFs are moved to a 
 | `NOTIFICATION_DIR` | `/path/to/notifications` | JSON notification output |
 | `CALIBRE_CONTAINER` | `calibre` | Docker container name for Calibre |
 | `DETECT_TIMEOUT` | `30` | Seconds before declaring pdftohtml hung |
-| `CONVERT_TIMEOUT` | `300` | Max seconds for conversion stages 2-3 |
+| `CONVERT_TIMEOUT` | `300` | Max seconds for conversion stages 2-4 |
 | `PROCESSED_FILE` | `$HOME/.pdf-converter-processed` | Tracks processed files |
 
 #### `pdf-convert-lib.sh`
 
-Shared library providing the `convert_single_pdf()` function used by `pdf-to-epub-watcher.sh`. Source this file to use the 3-stage conversion in your own scripts.
+Shared library providing the `convert_single_pdf()` function used by `pdf-to-epub-watcher.sh`. Source this file to use the 4-stage conversion in your own scripts.
 
 ---
 

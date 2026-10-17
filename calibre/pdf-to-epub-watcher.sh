@@ -1,7 +1,7 @@
 #!/bin/bash
 # pdf-to-epub-watcher.sh — inotifywait-based auto-converter for quarantined PDFs
 #
-# Watches pdf-quarantine/ for new PDFs, converts them to EPUB using the 3-stage
+# Watches pdf-quarantine/ for new PDFs, converts them to EPUB using the 4-stage
 # fallback strategy, and routes results:
 #   Success -> EPUB to incoming/ + source PDF to done/
 #   Failure -> source PDF to failed/
