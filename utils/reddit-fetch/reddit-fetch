@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+"""reddit-fetch: print a Reddit thread as Markdown.
+
+Usage: reddit-fetch <thread-url-or-id> [--sort new|top|best|old] [--limit N]
+
+Auth (from ~/.config/reddit-fetch.env, written by `set-secret`, chmod 600):
+  1. Script app (preferred): REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET,
+     REDDIT_USERNAME, REDDIT_PASSWORD -> OAuth password grant, oauth.reddit.com.
+  2. Fallback: REDDIT_SESSION (the browser's `reddit_session` cookie) -> www.reddit.com .json.
+     Cookies expire; refresh with `set-secret reddit-session`.
+Run from 800801 (residential IP); Reddit 403s datacenter IPs such as 800802.
+Exit codes: 0 ok, 2 usage, 3 no usable credentials, 4 auth rejected/expired, 5 fetch error.
+"""
+import base64, json, os, re, sys, urllib.error, urllib.parse, urllib.request
+
+UA = "linux:reddit-fetch:v0.2 (personal read-only script)"
+ENV = os.path.expanduser(os.environ.get("REDDIT_FETCH_ENV", "~/.config/reddit-fetch.env"))
+APP_KEYS = ("REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "REDDIT_USERNAME", "REDDIT_PASSWORD")
+
+
+def creds():
+    c = {}
+    if not os.path.exists(ENV):
+        return c
+    for line in open(ENV):
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, v = line.split("=", 1)
+            c[k.strip()] = v.strip().strip('"').strip("'")
+    return c
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k):
+        return None  # a redirect here means "log in", so surface it instead of following
+
+
+def get_json(url, headers):
+    req = urllib.request.Request(url, headers={"User-Agent": UA, **headers})
+    try:
+        with urllib.request.build_opener(NoRedirect).open(req, timeout=30) as r:
+            return json.load(r)
+    except urllib.error.HTTPError as e:
+        if e.code in (301, 302, 303, 307, 401, 403):
+            loc = e.headers.get("Location", "")
+            raise PermissionError(f"HTTP {e.code}{' -> ' + loc if loc else ''}") from None
+        raise
+
+
+def app_token(c):
+    auth = base64.b64encode(f"{c['REDDIT_CLIENT_ID']}:{c['REDDIT_CLIENT_SECRET']}".encode()).decode()
+    data = urllib.parse.urlencode({"grant_type": "password", "username": c["REDDIT_USERNAME"],
+                                   "password": c["REDDIT_PASSWORD"]}).encode()
+    req = urllib.request.Request("https://www.reddit.com/api/v1/access_token", data=data,
+                                 headers={"User-Agent": UA, "Authorization": f"Basic {auth}"})
+    try:
+        r = json.load(urllib.request.urlopen(req, timeout=30))
+    except urllib.error.HTTPError as e:
+        raise PermissionError(f"token endpoint HTTP {e.code}") from None
+    if "access_token" not in r:
+        # never print r: it can echo request details; the error key is enough
+        raise PermissionError(f"token refused ({r.get('error', 'unknown')}; 2FA accounts can't use the password grant)")
+    return r["access_token"]
+
+
+def fetch(tid, sort, limit):
+    c = creds()
+    q = f"sort={sort}&limit={limit}&raw_json=1"
+    errors = []
+    if all(c.get(k) for k in APP_KEYS):
+        try:
+            tok = app_token(c)
+            return get_json(f"https://oauth.reddit.com/comments/{tid}?{q}", {"Authorization": f"bearer {tok}"})
+        except PermissionError as e:
+            errors.append(f"app: {e}")
+    if c.get("REDDIT_SESSION"):
+        try:
+            return get_json(f"https://www.reddit.com/comments/{tid}.json?{q}",
+                            {"Cookie": f"reddit_session={c['REDDIT_SESSION']}"})
+        except PermissionError as e:
+            errors.append(f"cookie: {e} (expired? run: set-secret reddit-session)")
+    if not errors:
+        sys.stderr.write(f"no credentials in {ENV}; see the docstring (set-secret reddit-*)\n")
+        sys.exit(3)
+    sys.stderr.write("auth failed: " + "; ".join(errors) + "\n")
+    sys.exit(4)
+
+
+def walk(children, depth, out):
+    for ch in children:
+        if ch.get("kind") != "t1":
+            continue
+        d = ch["data"]
+        pad = "  " * depth
+        body = d.get("body", "").replace("\n", "\n" + pad + "  ")
+        out.append(f"{pad}- **u/{d.get('author')}** ({d.get('score')}): {body}")
+        if d.get("replies"):
+            walk(d["replies"]["data"]["children"], depth + 1, out)
+
+
+def main():
+    args = sys.argv[1:]
+    if not args or args[0] in ("-h", "--help"):
+        print(__doc__)
+        sys.exit(0 if args else 2)
+    sort = args[args.index("--sort") + 1] if "--sort" in args else "best"
+    limit = args[args.index("--limit") + 1] if "--limit" in args else "500"
+    m = re.search(r"comments/([a-z0-9]+)", args[0])
+    tid = m.group(1) if m else args[0]
+    if not re.fullmatch(r"[a-z0-9]+", tid):
+        sys.exit("bad thread id")
+    try:
+        post, comments = fetch(tid, sort, limit)
+    except (urllib.error.URLError, ValueError) as e:
+        sys.stderr.write(f"fetch error: {e}\n")
+        sys.exit(5)
+    p = post["data"]["children"][0]["data"]
+    out = [f"# {p['title']}", f"r/{p['subreddit']} · u/{p['author']} · {p['num_comments']} comments", "",
+           p.get("selftext", ""), "", "## Comments"]
+    walk(comments["data"]["children"], 0, out)
+    print("\n".join(out))
+
+
+if __name__ == "__main__":
+    main()
