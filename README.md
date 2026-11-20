@@ -132,6 +132,18 @@ Generates a quick status report for all your git repositories -- shows branch, l
 ./utils/git-status-report.sh --markdown
 ```
 
+#### `b2-mint-host-keys/`
+
+One-shot Backblaze B2 setup for a new restic host: creates a private `<id>-restic` bucket (30-day hidden-version lifecycle, no Object Lock) and a key that can reach only that bucket. The master key is asked for at a hidden prompt, held in memory only, and never written or passed on a command line. See its `README.md`.
+
+```bash
+b2-mint-host-keys 800803 800804
+```
+
+#### `set-secret/`
+
+Puts an API key into its config file without it touching the screen, shell history or an LLM. It uses a per-host registry of names and paths, never values. See its `README.md`. Gotcha: the registry splits on `|`, so a verify command can't contain a pipe.
+
 ---
 
 ### Audiobookshelf
