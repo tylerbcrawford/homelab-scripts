@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# nextdns — small CLI wrapper for the NextDNS API (https://nextdns.github.io/api/)
+#
+# Key:       ~/.config/nextdns/api-key (mode 600; set with `set-secret nextdns`)
+# Audit log: ~/.config/nextdns/audit.log (tsv: ts, actor, method, path, status). Key is never logged.
+# Profile:   $NEXTDNS_PROFILE, else the account's only/first profile.
+#
+# Reads run freely. Writes (allow/deny add/rm) need an explicit subcommand; --dry-run prints instead.
+#
+# Usage:
+#   nextdns profiles
+#   nextdns logs [--blocked] [--search TEXT] [--limit N]
+#   nextdns allow|deny list
+#   nextdns allow|deny add|rm DOMAIN [--dry-run]
+#   nextdns why DOMAIN          # recent lookups of DOMAIN with status + block reason
+
+set -euo pipefail
+
+KEY_FILE="${NEXTDNS_KEY_FILE:-$HOME/.config/nextdns/api-key}"
+AUDIT_LOG="${NEXTDNS_AUDIT_LOG:-$HOME/.config/nextdns/audit.log}"
+API="https://api.nextdns.io"
+ACTOR="${NEXTDNS_ACTOR:-${USER}@$(hostname -s)}"
+
+die() { printf 'nextdns: %s\n' "$*" >&2; exit 1; }
+
+[[ -f "$KEY_FILE" ]] || die "key not found: $KEY_FILE (run: set-secret nextdns)"
+case "$(stat -c '%a' "$KEY_FILE")" in 400|600) ;; *) die "$KEY_FILE must be mode 600";; esac
+
+req() { # req METHOD PATH [JSON]
+    local m=$1 p=$2 body=${3:-} out code
+    out=$(mktemp); trap 'rm -f "$out"' RETURN
+    code=$(curl -s -o "$out" -w '%{http_code}' -X "$m" \
+        -H "X-Api-Key: $(<"$KEY_FILE")" -H 'Content-Type: application/json' \
+        ${body:+--data "$body"} "$API$p")
+    if [[ $m != GET ]]; then
+        mkdir -p "$(dirname "$AUDIT_LOG")"
+        printf '%s\t%s\t%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$ACTOR" "$m" "$p" "$code" >> "$AUDIT_LOG"
+    fi
+    [[ $code == 2* ]] || { cat "$out" >&2; echo >&2; die "$m $p → HTTP $code"; }
+    cat "$out"
+}
+
+profile() {
+    [[ -n "${NEXTDNS_PROFILE:-}" ]] && { echo "$NEXTDNS_PROFILE"; return; }
+    req GET /profiles | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"][0]["id"])'
+}
+
+cmd=${1:-}; shift || true
+case "$cmd" in
+profiles)
+    req GET /profiles | python3 -c 'import json,sys; [print(p["id"], p["name"]) for p in json.load(sys.stdin)["data"]]' ;;
+logs|why)
+    blocked='' search='' limit=50
+    [[ $cmd == why ]] && { search=${1:?domain}; shift; }
+    while [[ $# -gt 0 ]]; do case $1 in
+        --blocked) blocked='&status=blocked';; --search) search=$2; shift;;
+        --limit) limit=$2; shift;; *) die "unknown flag $1";; esac; shift; done
+    n=$(( limit < 10 ? 10 : limit ))   # API minimum is 10
+    req GET "/profiles/$(profile)/logs?limit=$n$blocked${search:+&search=$search}" | python3 -c '
+import json,sys
+for x in json.load(sys.stdin)["data"]:
+    why = ", ".join(r["name"] for r in x.get("reasons", []))
+    print(x["timestamp"][:19].replace("T"," "), x["status"].ljust(8), x["domain"], (x.get("device") or {}).get("name",""), f"[{why}]" if why else "")' | head -n "$limit" ;;
+allow|deny)
+    list=${cmd}list; sub=${1:-list}; dom=${2:-}; dry=${3:-}
+    p=$(profile)
+    case $sub in
+    list) req GET "/profiles/$p/$list" | python3 -c 'import json,sys; [print(("  " if a["active"] else "x ")+a["id"]) for a in json.load(sys.stdin)["data"]]' ;;
+    add)  [[ -n $dom ]] || die "domain required"
+          [[ $dry == --dry-run ]] && { echo "POST /profiles/$p/$list {\"id\":\"$dom\",\"active\":true}"; exit; }
+          req POST "/profiles/$p/$list" "{\"id\":\"$dom\",\"active\":true}" >/dev/null && echo "added $dom to $list" ;;
+    rm)   [[ -n $dom ]] || die "domain required"
+          [[ $dry == --dry-run ]] && { echo "DELETE /profiles/$p/$list/$dom"; exit; }
+          req DELETE "/profiles/$p/$list/$dom" >/dev/null && echo "removed $dom from $list" ;;
+    *) die "usage: nextdns $cmd list|add|rm DOMAIN" ;;
+    esac ;;
+*) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; [[ -z $cmd || $cmd == -h || $cmd == --help ]] || exit 1 ;;
+esac
