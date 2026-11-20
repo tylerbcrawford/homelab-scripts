@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Copy the gdrive OAuth client from ~/.config/rclone/gdrive-oauth.env (written by
+# set-secret) into rclone.conf's [gdrive] section. Never prints values.
+# After the first apply, re-authorise once: rclone config reconnect gdrive:
+set -euo pipefail
+ENV="$HOME/.config/rclone/gdrive-oauth.env"
+CONF="$(rclone config file | tail -1)"
+[[ -f $ENV ]] || { echo "missing $ENV"; exit 1; }
+cp -p "$CONF" "$CONF.bak"
+ENV="$ENV" CONF="$CONF" python3 - <<'PY'
+import os, re
+env = dict(l.strip().split("=", 1) for l in open(os.environ["ENV"]) if "=" in l and not l.startswith("#"))
+want = {"client_id": env.get("RCLONE_GDRIVE_CLIENT_ID", ""), "client_secret": env.get("RCLONE_GDRIVE_CLIENT_SECRET", "")}
+want = {k: v for k, v in want.items() if v}
+out, sect, done = [], None, set()
+for line in open(os.environ["CONF"]).read().splitlines():
+    m = re.match(r"^\[(.+)\]$", line)
+    if m:
+        if sect == "gdrive": out += [f"{k} = {v}" for k, v in want.items() if k not in done]
+        sect = m.group(1)
+    elif sect == "gdrive":
+        k = line.split("=", 1)[0].strip()
+        if k in want: line = f"{k} = {want[k]}"; done.add(k)
+    out.append(line)
+if sect == "gdrive": out += [f"{k} = {v}" for k, v in want.items() if k not in done]
+open(os.environ["CONF"], "w").write("\n".join(out) + "\n")
+print("applied to [gdrive]:", ", ".join(want) or "nothing")
+PY
+chmod 600 "$CONF"
