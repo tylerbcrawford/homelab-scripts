@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+"""b2-mint-host-keys <fleet-id>... — one-shot B2 setup for restic hosts.
+
+Prompts (hidden) for the B2 MASTER keyID + applicationKey, keeps them in memory only, and per host:
+  - creates bucket <id>-restic if missing (allPrivate, no SSE, no Object Lock, hidden versions deleted after 30 days)
+  - creates an application key restricted to that bucket (skipped if ~/.config/b2/<id>.env already authorizes)
+  - writes B2_ACCOUNT_ID / B2_ACCOUNT_KEY to ~/.config/b2/<id>.env (0600)
+  - verifies the new key and prints only '<id> <http code>'
+Never prints a secret. Secrets never reach argv/ps (urllib, not curl).
+"""
+import base64, getpass, json, os, sys, urllib.request, urllib.error
+
+API = "https://api.backblazeb2.com/b2api/v2"
+CAPS = ["listBuckets", "readBuckets", "listFiles", "readFiles", "writeFiles", "deleteFiles"]
+CONF = os.path.expanduser("~/.config/b2")
+
+
+def call(url, token=None, body=None, basic=None):
+    req = urllib.request.Request(url, data=json.dumps(body).encode() if body is not None else None)
+    if basic:
+        req.add_header("Authorization", "Basic " + base64.b64encode(basic.encode()).decode())
+    elif token:
+        req.add_header("Authorization", token)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.status, json.load(r)
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, json.load(e)
+        except Exception:
+            return e.code, {}
+
+
+def authorize(key_id, key):
+    return call(f"{API}/b2_authorize_account", basic=f"{key_id}:{key}")
+
+
+def read_env(path):
+    vals = {}
+    try:
+        for line in open(path):
+            k, _, v = line.strip().partition("=")
+            vals[k] = v
+    except FileNotFoundError:
+        pass
+    return vals
+
+
+def main(hosts):
+    if not hosts or any(not h.isalnum() for h in hosts):
+        sys.exit("usage: b2-mint-host-keys <fleet-id>...   e.g. b2-mint-host-keys 800803 800804")
+    mid = getpass.getpass("B2 master keyID (hidden): ").strip()
+    mkey = getpass.getpass("B2 master applicationKey (hidden): ").strip()
+    code, auth = authorize(mid, mkey)
+    del mkey
+    if code != 200:
+        sys.exit(f"master key rejected: HTTP {code} {auth.get('code', '')}")
+    api, tok, acct = auth["apiUrl"] + "/b2api/v2", auth["authorizationToken"], auth["accountId"]
+    os.makedirs(CONF, mode=0o700, exist_ok=True)
+    rc = 0
+    for host in hosts:
+        name, path = f"{host}-restic", os.path.join(CONF, f"{host}.env")
+        _, lst = call(f"{api}/b2_list_buckets", tok, {"accountId": acct, "bucketName": name})
+        buckets = lst.get("buckets", [])
+        if buckets:
+            bucket_id, made = buckets[0]["bucketId"], "exists"
+        else:
+            code, b = call(f"{api}/b2_create_bucket", tok, {
+                "accountId": acct, "bucketName": name, "bucketType": "allPrivate",
+                "fileLockEnabled": False, "defaultServerSideEncryption": {"mode": None},
+                "lifecycleRules": [{"fileNamePrefix": "", "daysFromHidingToDeleting": 30,
+                                    "daysFromUploadingToHiding": None}]})
+            if code != 200:
+                print(f"{host} bucket-create-failed HTTP {code} {b.get('code', '')}"); rc = 1; continue
+            bucket_id, made = b["bucketId"], "created"
+        old = read_env(path)
+        if old.get("B2_ACCOUNT_ID") and old.get("B2_ACCOUNT_KEY") and authorize(old["B2_ACCOUNT_ID"], old["B2_ACCOUNT_KEY"])[0] == 200:
+            print(f"{host} bucket {made}, existing key OK (not replaced)"); continue
+        code, k = call(f"{api}/b2_create_key", tok, {"accountId": acct, "capabilities": CAPS,
+                                                     "keyName": name, "bucketId": bucket_id})
+        if code != 200:
+            print(f"{host} key-create-failed HTTP {code} {k.get('code', '')}"); rc = 1; continue
+        if os.path.exists(path):
+            os.replace(path, path + ".bak")
+        fd = os.open(path + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(f"B2_ACCOUNT_ID={k['applicationKeyId']}\nB2_ACCOUNT_KEY={k['applicationKey']}\n")
+        os.replace(path + ".tmp", path)
+        vcode = authorize(k["applicationKeyId"], k["applicationKey"])[0]
+        print(f"{host} bucket {made}, new key {vcode}")
+        rc |= vcode != 200
+    sys.exit(rc)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
