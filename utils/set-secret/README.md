@@ -6,6 +6,7 @@ history, `ps`, or an LLM. One script; one registry per host
 
     set-secret              # numbered pick list
     set-secret <name>       # direct
+    set-secret <bundle>     # several related values in one run (client id + secret, key id + key)
     set-secret --list       # names + targets
     ssh -t media ~/.local/bin/set-secret <name>   # remote host, prompt stays in your terminal
 
@@ -14,3 +15,11 @@ write, chmod 600 → optional restart. Install: `ln -sf <repo>/utils/set-secret/
 
 Restart column is blank for media-server keys: the compose service that
 consumes each key varies — run `docker compose up -d <service>` afterwards.
+
+**Bundles.** Credentials that come in pairs get one bundle row, so Tyler pastes
+both in a single run: `name | bundle: member1 member2`. Members are prompted in
+order and each is saved before the next, so a later member's verify can read the
+earlier one from its file (put the id first, the secret last). Each distinct
+restart command runs once, after the last member. Members stay settable alone.
+Rule: **any new credential pair gets a bundle row**, and handoffs give the bundle
+name, not the members.
