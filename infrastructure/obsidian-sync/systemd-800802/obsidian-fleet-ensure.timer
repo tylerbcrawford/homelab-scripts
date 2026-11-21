@@ -1,0 +1,8 @@
+[Unit]
+Description=Obsidian fleet ensure every 30 min
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=30min
+RandomizedDelaySec=60
+[Install]
+WantedBy=timers.target

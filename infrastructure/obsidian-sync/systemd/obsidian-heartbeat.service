@@ -1,0 +1,5 @@
+[Unit]
+Description=Stamp Obsidian Sync heartbeat note
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/obsidian-heartbeat.sh

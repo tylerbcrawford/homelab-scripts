@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>bid.800802.obsidian-login</string>
+  <!-- Start Obsidian in the background at login so Sync runs without anyone opening it.
+       Restarts after a quit are handled by obsidian-fleet-ensure on 800802 (every 30 min),
+       so Cmd-Q still works for a while. -->
+  <key>ProgramArguments</key><array><string>/usr/bin/open</string><string>-g</string><string>-a</string><string>Obsidian</string></array>
+  <key>RunAtLoad</key><true/>
+</dict></plist>

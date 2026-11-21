@@ -1,0 +1,7 @@
+[Unit]
+Description=Keep Obsidian running + synced on Sync-only fleet machines
+After=network-online.target
+[Service]
+Type=oneshot
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/projects/homelab-scripts/infrastructure/obsidian-sync/obsidian-fleet-ensure.sh

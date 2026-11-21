@@ -1,0 +1,7 @@
+[Unit]
+Description=Obsidian Sync heartbeat every 15 min
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=15min
+[Install]
+WantedBy=timers.target
