@@ -1,0 +1,8 @@
+[Unit]
+Description=Obsidian Sync health check
+After=obsidian.service
+OnFailure=obsidian-healthcheck-alert.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/tyler/.local/bin/obsidian-healthcheck.sh

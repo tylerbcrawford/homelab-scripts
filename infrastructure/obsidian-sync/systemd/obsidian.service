@@ -1,0 +1,51 @@
+[Unit]
+Description=Obsidian Sync client (persistent headless)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=10min
+StartLimitBurst=10
+
+[Service]
+Type=simple
+WorkingDirectory=/home/tyler/obsidian-vault
+ExecStartPre=/bin/bash -c '\
+    rm -rf /home/tyler/.config/obsidian/GPUCache/* 2>/dev/null; \
+    rm -rf /home/tyler/.config/obsidian/Crashpad/* 2>/dev/null; \
+    rm -f /home/tyler/.config/obsidian/.org.chromium.Chromium.* 2>/dev/null; \
+    rm -f /home/tyler/.config/obsidian/SingletonLock 2>/dev/null; \
+    rm -f /home/tyler/.config/obsidian/SingletonCookie 2>/dev/null; \
+    rm -f /home/tyler/.config/obsidian/SingletonSocket 2>/dev/null; \
+    true'
+ExecStart=/usr/bin/xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \
+    /home/tyler/.local/bin/obsidian \
+    --no-sandbox \
+    --disable-gpu \
+    --disable-gpu-compositing \
+    --disable-software-rasterizer \
+    --disable-features=VaapiVideoDecoder,VaapiVideoEncoder \
+    --ozone-platform=x11 \
+    --password-store=basic \
+    --remote-debugging-port=9222 \
+    --remote-allow-origins=* \
+    /home/tyler/obsidian-vault
+Restart=on-failure
+RestartSec=15
+TimeoutStartSec=90
+TimeoutStopSec=30
+Environment=HOME=/home/tyler
+Environment=XDG_CONFIG_HOME=/home/tyler/.config
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=ELECTRON_DISABLE_GPU=1
+# Pin Electron/Ozone to X11. The systemd --user manager inherits the GNOME login
+# session env, which sets XDG_SESSION_TYPE=wayland; under Xvfb (X11-only) that
+# makes Electron choose the Wayland backend and segfault (status 139, the
+# 2026-06-23 crash loop). These override the inherited values so the headless
+# run is always X11, regardless of how the desktop session is logged in.
+Environment=XDG_SESSION_TYPE=x11
+Environment=ELECTRON_OZONE_PLATFORM_HINT=x11
+UnsetEnvironment=WAYLAND_DISPLAY
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

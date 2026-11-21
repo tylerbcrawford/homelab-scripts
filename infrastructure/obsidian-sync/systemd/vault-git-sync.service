@@ -1,0 +1,9 @@
+[Unit]
+Description=Obsidian Vault Git Sync (auto-pull)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/tyler/obsidian-vault/.scripts/vault-git-sync.sh
+WorkingDirectory=/home/tyler/obsidian-vault

@@ -1,0 +1,7 @@
+[Unit]
+Description=Meta-alert: obsidian-healthcheck itself failed (Discord, 6h cap)
+
+[Service]
+Type=oneshot
+TimeoutStartSec=30
+ExecStart=/home/tyler/.local/bin/obsidian-sync-notify.sh healthcheck-broken
