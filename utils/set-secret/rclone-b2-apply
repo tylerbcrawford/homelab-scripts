@@ -1,0 +1,15 @@
+#!/bin/bash
+# Copies the B2 key pair from ~/.config/rclone/b2-backup.env into the [b2-backup] section of rclone.conf.
+# Values go through env/awk only (never argv). Run by set-secret after the rclone-b2 bundle is saved.
+set -euo pipefail
+ENV="$HOME/.config/rclone/b2-backup.env" CONF="$HOME/.config/rclone/rclone.conf"
+set -a; . "$ENV"; set +a
+cp -p "$CONF" "$CONF.bak.$(date +%Y%m%d%H%M%S)"
+tmp=$(mktemp "$CONF.XXXX")
+awk 'BEGIN{a=ENVIRON["B2_KEY_ID"]; k=ENVIRON["B2_APP_KEY"]}
+  /^\[/{s=($0=="[b2-backup]")}
+  s && /^account *=/{print "account = " a; next}
+  s && /^key *=/{print "key = " k; next} {print}' "$CONF" > "$tmp"
+chmod 600 "$tmp"; mv "$tmp" "$CONF"
+n=$(rclone lsf b2-backup:800801-restic/restic --max-depth 1 2>/dev/null | wc -l)
+echo "rclone b2-backup: $n top-level entries in 800801-restic/restic (expect ~6)"
