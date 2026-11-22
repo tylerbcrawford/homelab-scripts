@@ -1,0 +1,23 @@
+#!/bin/bash
+# kasa-cycle — power-cycle a Kasa plug as ONE detached job (off, sleep, on).
+# Runs on 800803. Detaches with nohup so the "on" still fires when the caller's
+# SSH session dies — which it will when the plug powers off 800801 (where HA runs).
+# Usage: kasa-cycle <host> [seconds=20] [--dry-run]
+set -euo pipefail
+KASA="${KASA:-$HOME/.local/bin/kasa}"
+LOG="$HOME/Library/Logs/kasa-cycle.log"
+host="${1:?usage: kasa-cycle <host> [seconds] [--dry-run]}"; secs="${2:-20}"; dry="${3:-}"
+[[ "$secs" =~ ^[0-9]+$ ]] && (( secs >= 5 && secs <= 120 )) || { echo "seconds must be 5-120" >&2; exit 2; }
+# Confirm the plug answers before turning anything off.
+"$KASA" --host "$host" --type plug state >/dev/null || { echo "plug $host unreachable; not cycling" >&2; exit 1; }
+if [[ "$dry" == "--dry-run" ]]; then
+  echo "dry-run: would run off → sleep $secs → on for $host (plug reachable)"; exit 0
+fi
+nohup bash -c "
+  echo \"\$(date '+%F %T') cycle $host start\"
+  '$KASA' --host '$host' --type plug off
+  sleep $secs
+  for i in 1 2 3 4 5; do '$KASA' --host '$host' --type plug on && break; sleep 5; done
+  echo \"\$(date '+%F %T') cycle $host done\"
+" >>"$LOG" 2>&1 </dev/null &
+echo "cycle of $host scheduled (pid $!); log: $LOG"
