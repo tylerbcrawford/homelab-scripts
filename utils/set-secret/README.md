@@ -35,3 +35,8 @@ Install per host: `ln -sf <repo>/utils/set-secret/set-secret-web ~/.local/bin/` 
 `ln -sf <repo>/utils/set-secret/set-secret-web.service ~/.config/systemd/user/` →
 `systemctl --user daemon-reload && systemctl --user enable --now set-secret-web`.
 Plain HTTP is fine here: WireGuard already encrypts tailnet traffic end-to-end.
+**Adding a secret from the web UI.** `+ New secret` → name, file (must be under `~/`),
+KEY (blank = whole file), optional second KEY (makes `<name>-<key>` members + a bundle
+row). The row is appended to this host's registry and auto-committed + pushed. Restart
+and verify commands are CLI-only on purpose: they run as shell, so the web form can't set
+them. Edit the row by hand to add one.
