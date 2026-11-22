@@ -23,3 +23,15 @@ earlier one from its file (put the id first, the secret last). Each distinct
 restart command runs once, after the last member. Members stay settable alone.
 Rule: **any new credential pair gets a bundle row**, and handoffs give the bundle
 name, not the members.
+
+**Web UI (`set-secret-web`).** Same registry, same write path, from any browser on
+the tailnet: <http://100.94.198.72:3900> (800802), <http://100.83.95.43:3900> (800801);
+the nav bar links the hosts. Pick a row, paste into the password field(s), Save.
+Listens on the Tailscale IP only; every request is checked with `tailscale whois`
+and only the tailnet owner's login gets in (override: `SET_SECRET_WEB_USERS`).
+Values travel as a POST body, go to `set-secret --stdin` on stdin, and are never
+logged or echoed. Failed provider check → form comes back with a "save anyway" box.
+Install per host: `ln -sf <repo>/utils/set-secret/set-secret-web ~/.local/bin/` +
+`ln -sf <repo>/utils/set-secret/set-secret-web.service ~/.config/systemd/user/` →
+`systemctl --user daemon-reload && systemctl --user enable --now set-secret-web`.
+Plain HTTP is fine here: WireGuard already encrypts tailnet traffic end-to-end.
