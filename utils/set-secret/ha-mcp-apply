@@ -1,0 +1,19 @@
+#!/bin/bash
+# ha-mcp-apply — run by `set-secret ha-token` after the token is saved.
+# 1) enables HA's MCP Server integration (if missing), 2) wires a `home-assistant`
+# MCP server into the vault .mcp.json on 800802 and 800801. Never prints the token.
+set -euo pipefail
+ENVF=~/.config/homeassistant/token.env; URL=https://home.800801.online
+TOKEN=$(sed -n 's/^HA_TOKEN=//p' "$ENVF"); AUTH="Authorization: Bearer $TOKEN"
+if ! curl -sf -H "$AUTH" "$URL/api/config/config_entries/entry" | jq -e 'any(.[]; .domain=="mcp_server")' >/dev/null; then
+  flow=$(curl -sf -H "$AUTH" -H 'Content-Type: application/json' -d '{"handler":"mcp_server"}' "$URL/api/config/config_entries/flow")
+  id=$(jq -r .flow_id <<<"$flow"); type=$(jq -r .type <<<"$flow")
+  [[ $type == form ]] && curl -sf -H "$AUTH" -H 'Content-Type: application/json' -d '{"llm_hass_api":["assist"]}' "$URL/api/config/config_entries/flow/$id" >/dev/null
+  echo "mcp_server integration: added"
+else echo "mcp_server integration: already present"; fi
+patch='.mcpServers["home-assistant"]={"type":"http","url":"'"$URL"'/api/mcp","headers":{"Authorization":("Bearer "+$t)}}'
+f=~/obsidian-vault/.mcp.json
+jq --arg t "$TOKEN" "$patch" "$f" > "$f.tmp" && install -m600 "$f.tmp" "$f" && rm "$f.tmp"
+printf '%s' "$TOKEN" | ssh media "install -d -m700 ~/.config/homeassistant && { printf 'HA_TOKEN='; cat; echo; } | install -m600 /dev/stdin ~/.config/homeassistant/token.env
+  f=~/obsidian-vault/.mcp.json; jq --arg t \"\$(sed -n 's/^HA_TOKEN=//p' ~/.config/homeassistant/token.env)\" '$patch' \$f > \$f.tmp && install -m600 \$f.tmp \$f && rm \$f.tmp" 2>/dev/null
+echo ".mcp.json updated on 800802 + 800801 (restart Claude sessions to load it)"
