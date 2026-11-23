@@ -150,7 +150,6 @@ main() {
         qbittorrent \
         glances \
         tautulli \
-        filebrowser \
         wetty \
         metube \
         unpackerr
