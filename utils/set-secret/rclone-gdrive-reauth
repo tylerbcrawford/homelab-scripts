@@ -2,6 +2,7 @@
 # Sign gdrive: in under our own OAuth client (~/.config/rclone/gdrive-oauth.env).
 # Works on a private copy of rclone.conf and replaces the live one only after a
 # forced token refresh succeeds, so an abandoned sign-in changes nothing.
+# New client: set-secret rclone-gdrive (stores only), then this.
 # Run over: ssh -t -L 53682:localhost:53682 dev '~/.local/bin/rclone-gdrive-reauth'
 set -euo pipefail
 umask 077

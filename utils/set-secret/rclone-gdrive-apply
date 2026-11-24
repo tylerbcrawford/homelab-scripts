@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Copy the gdrive OAuth client from ~/.config/rclone/gdrive-oauth.env (written by
 # set-secret) into rclone.conf's [gdrive] section. Never prints values.
-# After the first apply, re-authorise once: rclone config reconnect gdrive:
+# Called by rclone-gdrive-reauth on a private config copy. Refuses the live config:
+# a new client with the old client's token breaks gdrive: within an hour.
 set -euo pipefail
+[[ -n ${RCLONE_CONFIG:-} ]] || { echo "run rclone-gdrive-reauth instead"; exit 1; }
 ENV="$HOME/.config/rclone/gdrive-oauth.env"
 CONF="$(rclone config file | tail -1)"
 [[ -f $ENV ]] || { echo "missing $ENV"; exit 1; }
